@@ -1,11 +1,14 @@
 'use server';
 
 import { z } from 'zod';
-import { recommendSongsBasedOnUserInput } from '@/ai/flows/recommend-songs';
+import { recommendSongs } from '@/ai/flows/recommend-songs';
 import { generatePlaylistDescription } from '@/ai/flows/generate-playlist-description';
 import { extractSongMetadata } from '@/ai/flows/extract-song-metadata';
+import { extractTextFromImage } from '@/ai/flows/extract-text-from-image';
+import { detectEmotionFromText } from '@/ai/flows/detect-emotion-from-text';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 import type { Song } from '@/lib/types';
+import type { Emotion } from '@/ai/flows/detect-emotion-from-text';
 
 const recommendationFormSchema = z.object({
   prompt: z.string().min(3, { message: 'Prompt must be at least 3 characters long.' }),
@@ -13,7 +16,7 @@ const recommendationFormSchema = z.object({
 
 function parseSongString(songString: string, index: number): Song {
   const parts = songString.split(' by ');
-  const title = parts[0]?.trim() || 'Unknown Title';
+  const title = parts[0]?.trim().replace(/"/g, '') || 'Unknown Title';
   const artist = parts[1]?.trim() || 'Unknown Artist';
   
   const placeholderIndex = index % PlaceHolderImages.length;
@@ -29,6 +32,30 @@ function parseSongString(songString: string, index: number): Song {
   };
 }
 
+async function getSongsAndDescription(prompt: string) {
+    const { recommendations } = await recommendSongs({ prompt });
+
+    if (!recommendations || recommendations.length === 0) {
+      throw new Error('Could not generate recommendations. Try a different prompt.');
+    }
+
+    const songs = recommendations.map(parseSongString).filter(song => song.title !== 'Unknown Title');
+
+    if (songs.length === 0) {
+        throw new Error('AI returned recommendations in an unexpected format. Please try again.');
+    }
+    
+    const songMetadatas = songs.map(s => ({ title: s.title, artist: s.artist }));
+
+    const { description } = await generatePlaylistDescription({ songs: songMetadatas, prompt });
+    
+    return {
+      songs,
+      description,
+    };
+}
+
+
 export async function getRecommendations(prevState: any, formData: FormData) {
   const validatedFields = recommendationFormSchema.safeParse({
     prompt: formData.get('prompt'),
@@ -43,29 +70,11 @@ export async function getRecommendations(prevState: any, formData: FormData) {
   const userInput = validatedFields.data.prompt;
 
   try {
-    const { recommendations } = await recommendSongsBasedOnUserInput({ userInput });
-
-    if (!recommendations || recommendations.length === 0) {
-      return { error: { _form: ['Could not generate recommendations. Try a different prompt.'] } };
-    }
-
-    const songs = recommendations.map(parseSongString).filter(song => song.title !== 'Unknown Title');
-
-    if (songs.length === 0) {
-        return { error: { _form: ['AI returned recommendations in an unexpected format. Please try again.'] } };
-    }
-    
-    const songMetadatas = songs.map(s => ({ title: s.title, artist: s.artist }));
-
-    const { description } = await generatePlaylistDescription({ songs: songMetadatas });
-    
-    return {
-      songs,
-      description,
-    };
-  } catch (e) {
+    const { songs, description } = await getSongsAndDescription(userInput);
+    return { songs, description };
+  } catch (e: any) {
     console.error(e);
-    return { error: { _form: ['An unexpected error occurred with the AI service.'] } };
+    return { error: { _form: [e.message || 'An unexpected error occurred with the AI service.'] } };
   }
 }
 
@@ -96,5 +105,42 @@ export async function analyzeSong(prevState: any, formData: FormData) {
   } catch (e) {
     console.error(e);
     return { error: 'Could not analyze song. The audio might not be recognized or the file may be too large.' };
+  }
+}
+
+export async function getEmotionRecommendations(prevState: any, formData: FormData) {
+  const imageFile = formData.get('imageFile') as File;
+
+  if (!imageFile || imageFile.size === 0) {
+    return { error: 'Please select an image file.' };
+  }
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(imageFile.type)) {
+    return { error: 'Invalid file type. Please upload a JPG, PNG, or WebP file.' };
+  }
+
+  try {
+    const arrayBuffer = await imageFile.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const imageDataUri = `data:${imageFile.type};base64,${buffer.toString('base64')}`;
+
+    const { text } = await extractTextFromImage({ imageDataUri });
+
+    if (!text) {
+      return {
+        text,
+        error: 'No text could be found in the image.',
+      };
+    }
+
+    const { emotion } = await detectEmotionFromText({ text });
+
+    const { songs, description } = await getSongsAndDescription(emotion);
+
+    return { text, emotion, songs, description };
+  } catch (e: any) {
+    console.error(e);
+    return { error: e.message || 'An unexpected error occurred.' };
   }
 }

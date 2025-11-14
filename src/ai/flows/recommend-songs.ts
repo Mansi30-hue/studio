@@ -2,46 +2,47 @@
 'use server';
 
 /**
- * @fileOverview Recommends songs based on a text description of music preferences.
+ * @fileOverview Recommends songs based on a text description of music preferences or an emotion.
  *
- * - recommendSongsBasedOnUserInput - A function that recommends songs based on user input.
- * - RecommendSongsBasedOnUserInputInput - The input type for the recommendSongsBasedOnUserInput function.
- * - RecommendSongsBasedOnUserInputOutput - The return type for the recommendSongsBasedOnUserInput function.
+ * - recommendSongs - A function that recommends songs based on user input.
+ * - RecommendSongsInput - The input type for the recommendSongs function.
+ * - RecommendSongsOutput - The return type for the recommendSongs function.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-const RecommendSongsBasedOnUserInputInputSchema = z.object({
-  userInput: z.string().describe('A text description of the music the user likes.'),
+const RecommendSongsInputSchema = z.object({
+  prompt: z.string().describe('A text description of the music the user likes, a mood, or an emotion.'),
 });
-export type RecommendSongsBasedOnUserInputInput = z.infer<typeof RecommendSongsBasedOnUserInputInputSchema>;
+export type RecommendSongsInput = z.infer<typeof RecommendSongsInputSchema>;
 
-const RecommendSongsBasedOnUserInputOutputSchema = z.object({
+const RecommendSongsOutputSchema = z.object({
   recommendations: z.array(z.string()).describe('A list of recommended songs based on the user input.'),
 });
-export type RecommendSongsBasedOnUserInputOutput = z.infer<typeof RecommendSongsBasedOnUserInputOutputSchema>;
+export type RecommendSongsOutput = z.infer<typeof RecommendSongsOutputSchema>;
 
-export async function recommendSongsBasedOnUserInput(input: RecommendSongsBasedOnUserInputInput): Promise<RecommendSongsBasedOnUserInputOutput> {
-  return recommendSongsBasedOnUserInputFlow(input);
+export async function recommendSongs(input: RecommendSongsInput): Promise<RecommendSongsOutput> {
+  return recommendSongsFlow(input);
 }
 
 const prompt = ai.definePrompt({
-  name: 'recommendSongsBasedOnUserInputPrompt',
-  input: {schema: RecommendSongsBasedOnUserInputInputSchema},
-  output: {schema: RecommendSongsBasedOnUserInputOutputSchema},
-  prompt: `You are a music recommendation expert. Based on the user's description of their music preferences, recommend a list of songs.
+  name: 'recommendSongsPrompt',
+  input: {schema: RecommendSongsInputSchema},
+  output: {schema: RecommendSongsOutputSchema},
+  prompt: `You are a music recommendation expert. Based on the user's description of their music preferences, recommend a list of 10 songs.
+The format of each recommendation must be "Song Title by Artist".
 
-User preferences: {{{userInput}}}
+User preferences: {{{prompt}}}
 
 Recommendations:`,
 });
 
-const recommendSongsBasedOnUserInputFlow = ai.defineFlow(
+const recommendSongsFlow = ai.defineFlow(
   {
-    name: 'recommendSongsBasedOnUserInputFlow',
-    inputSchema: RecommendSongsBasedOnUserInputInputSchema,
-    outputSchema: RecommendSongsBasedOnUserInputOutputSchema,
+    name: 'recommendSongsFlow',
+    inputSchema: RecommendSongsInputSchema,
+    outputSchema: RecommendSongsOutputSchema,
   },
   async input => {
     const {output} = await prompt(input);

@@ -24,6 +24,7 @@ const GeneratePlaylistDescriptionInputSchema = z.object({
       })
     )
     .describe('An array of song objects in the playlist.'),
+   prompt: z.string().optional().describe('The original prompt or emotion that generated the playlist.'),
 });
 export type GeneratePlaylistDescriptionInput = z.infer<typeof GeneratePlaylistDescriptionInputSchema>;
 
@@ -42,13 +43,14 @@ const prompt = ai.definePrompt({
   name: 'generatePlaylistDescriptionPrompt',
   input: {schema: GeneratePlaylistDescriptionInputSchema},
   output: {schema: GeneratePlaylistDescriptionOutputSchema},
-  prompt: `You are a music expert. Generate a short description of a playlist based on the following songs:
+  prompt: `You are a music expert. Generate a short description for a playlist.
+The description should be no more than 2 sentences long and capture the overall theme or mood of the playlist.
+{{#if prompt}}The playlist was generated based on the following theme: {{{prompt}}}{{/if}}
 
+Here are the songs in the playlist:
 {{#each songs}}
 - {{this.title}} by {{this.artist}}
 {{/each}}
-
-The description should be no more than 2 sentences long and capture the overall theme or mood of the playlist.
 `,
 });
 
