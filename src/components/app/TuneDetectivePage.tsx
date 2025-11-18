@@ -20,7 +20,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { getRecommendations, analyzeSong } from "@/lib/actions";
+import { getRecommendations, analyzeSong, getEmotionRecommendations } from "@/lib/actions";
 import type { Song } from "@/lib/types";
 import { initialSongs } from "@/lib/data";
 import {
@@ -33,10 +33,12 @@ import {
   SkipForward,
   Upload,
   FileMusic,
-  X,
+  Camera,
+  HeartPulse,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import type { Emotion } from "@/ai/flows/detect-emotion-from-text";
 
 const recommendationFormSchema = z.object({
   prompt: z
@@ -49,6 +51,11 @@ const analysisFormSchema = z.object({
     .any()
     .refine((file) => file?.size > 0, "Please select an audio file."),
 });
+
+const emotionFormSchema = z.object({
+    imageFile: z.any().refine((file) => file?.size > 0, "Please select an image file."),
+});
+
 
 type RecommendationState = {
   songs?: Song[];
@@ -64,12 +71,21 @@ type AnalysisState = {
   error?: string;
 };
 
+type EmotionState = {
+  songs?: Song[];
+  description?: string;
+  text?: string;
+  emotion?: Emotion;
+  error?: string;
+}
+
 const initialRecommendationState: RecommendationState = {
   songs: initialSongs,
   description: "A curated selection to get you started. Discover your next favorite song!",
 };
 
 const initialAnalysisState: AnalysisState = {};
+const initialEmotionState: EmotionState = {};
 
 function SubmitButton({ text }: { text: string }) {
   const { pending } = useFormStatus();
@@ -103,6 +119,22 @@ function AnalysisSubmitButton() {
   );
 }
 
+function EmotionSubmitButton() {
+    const { pending } = useFormStatus();
+    return (
+      <Button type="submit" disabled={pending}>
+        {pending ? (
+          <LoaderCircle className="animate-spin" />
+        ) : (
+          <>
+            <HeartPulse className="mr-2" />
+            Detect Emotion
+          </>
+        )}
+      </Button>
+    );
+  }
+
 export default function TuneDetectivePage() {
   const { toast } = useToast();
   const [playlist, setPlaylist] = useState<Song[]>(initialSongs);
@@ -124,6 +156,11 @@ export default function TuneDetectivePage() {
     analyzeSong,
     initialAnalysisState
   );
+  
+  const [emotionState, emotionAction] = useFormState<EmotionState, FormData>(
+    getEmotionRecommendations,
+    initialEmotionState
+  );
 
   const recommendationForm = useForm<z.infer<typeof recommendationFormSchema>>({
     resolver: zodResolver(recommendationFormSchema),
@@ -132,6 +169,10 @@ export default function TuneDetectivePage() {
 
   const analysisForm = useForm({
     resolver: zodResolver(analysisFormSchema),
+  });
+
+  const emotionForm = useForm({
+    resolver: zodResolver(emotionFormSchema),
   });
 
   useEffect(() => {
@@ -159,6 +200,27 @@ export default function TuneDetectivePage() {
       });
     }
   }, [analysisState, toast])
+  
+  useEffect(() => {
+    if (emotionState?.error) {
+        toast({
+            variant: "destructive",
+            title: "Emotion Analysis Error",
+            description: emotionState.error,
+        });
+    }
+    if (emotionState?.songs) {
+      setPlaylist(emotionState.songs);
+      setPlaylistDescription(emotionState.description || "");
+      setCurrentSong(null);
+      setIsPlaying(false);
+      // Switch to recommendations tab to show the new playlist
+      const trigger = document.querySelector('button[data-radix-collection-item][value="recommend"]');
+      if (trigger instanceof HTMLElement) {
+        trigger.click();
+      }
+    }
+  }, [emotionState, toast]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -211,6 +273,11 @@ export default function TuneDetectivePage() {
   const watchedAudioFile = analysisForm.watch("audioFile");
   const audioFileName = useMemo(() => watchedAudioFile?.[0]?.name, [watchedAudioFile]);
 
+  const imageFileRef = emotionForm.register("imageFile");
+  const watchedImageFile = emotionForm.watch("imageFile");
+  const imageFileName = useMemo(() => watchedImageFile?.[0]?.name, [watchedImageFile]);
+
+
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground font-body">
       <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -223,9 +290,10 @@ export default function TuneDetectivePage() {
       <main className="flex-1">
         <div className="container py-8">
           <Tabs defaultValue="recommend" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 max-w-md mx-auto">
+            <TabsList className="grid w-full grid-cols-3 max-w-md mx-auto">
               <TabsTrigger value="recommend">Recommendations</TabsTrigger>
               <TabsTrigger value="analyze">Analyze Song</TabsTrigger>
+              <TabsTrigger value="emotion">Emotion</TabsTrigger>
             </TabsList>
             <TabsContent value="recommend" className="mt-8">
               <section className="text-center mb-12">
@@ -376,6 +444,86 @@ export default function TuneDetectivePage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="emotion" className="mt-8">
+               <section className="text-center mb-12">
+                <h2 className="text-4xl font-bold tracking-tighter mb-4 font-headline">
+                  Music from Emotion
+                </h2>
+                <p className="max-w-2xl mx-auto text-muted-foreground text-lg">
+                  Upload an image with text. We'll detect the emotion and create a playlist to match.
+                </p>
+              </section>
+              
+              <Card className="max-w-xl mx-auto">
+                <CardContent className="p-6">
+                <Form {...emotionForm}>
+                  <form action={emotionAction} className="space-y-6">
+                    <FormField
+                      control={emotionForm.control}
+                      name="imageFile"
+                      render={({ field }) => (
+                      <FormItem>
+                        <FormLabel htmlFor="image-upload" className={cn("w-full h-48 border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-accent/20 transition-colors",
+                         {'border-primary bg-accent/10': !!imageFileName}
+                        )}>
+                            {imageFileName ? (
+                              <>
+                                <FileMusic className="w-12 h-12 text-primary mb-2" />
+                                <p className="font-semibold">{imageFileName}</p>
+                                <p className="text-sm text-muted-foreground">Click to change file</p>
+                              </>
+                            ) : (
+                              <>
+                                <Camera className="w-12 h-12 text-muted-foreground mb-2" />
+                                <p className="font-semibold">Click to upload image</p>
+                                <p className="text-sm text-muted-foreground">JPG, PNG, or WEBP</p>
+                              </>
+                            )}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            id="image-upload"
+                            type="file"
+                            className="hidden"
+                            accept="image/jpeg, image/png, image/webp"
+                            {...imageFileRef}
+                            onChange={(event) => {
+                                field.onChange(event.target.files);
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                      )}
+                    />
+                    <EmotionSubmitButton />
+                  </form>
+                  </Form>
+                  {(emotionState?.text || emotionState?.emotion) && (
+                     <div className="mt-8 p-4 bg-accent/20 border border-primary/50 rounded-lg text-center space-y-2">
+                        <h4 className="font-bold text-lg">Emotion Analysis Result</h4>
+                        {emotionState.text && (
+                            <div>
+                                <p className="text-sm text-muted-foreground">Extracted Text</p>
+                                <p className="font-mono bg-background/50 rounded p-2 text-sm">"{emotionState.text}"</p>
+                            </div>
+                        )}
+                        {emotionState.emotion && (
+                             <div>
+                                <p className="text-sm text-muted-foreground">Detected Emotion</p>
+                                <p className="text-2xl font-headline text-primary capitalize">{emotionState.emotion}</p>
+                             </div>
+                        )}
+                        {emotionState.songs && (
+                            <p className="text-sm text-green-600 dark:text-green-400 pt-2">Playlist generated! Check the "Recommendations" tab.</p>
+                        )}
+                     </div>
+                  )}
+                </CardContent>
+              </Card>
+
+            </TabsContent>
           </Tabs>
         </div>
       </main>
@@ -426,4 +574,3 @@ export default function TuneDetectivePage() {
       )}
     </div>
   );
-}
