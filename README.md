@@ -26,6 +26,4 @@ Backend Logic (Server Actions):
 
 Instead of a traditional API, the project uses Next.js Server Actions (in src/lib/actions.ts). These are functions that run securely on the server, connecting the user interface directly to the AI flows without you having to write separate API endpoints.
 
-https://github.com/user-attachments/assets/1b749e68-e705-41b3-8f3b-3a52e0e4616a
-
 
